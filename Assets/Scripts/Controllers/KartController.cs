@@ -1,5 +1,5 @@
-using Unity.PlasticSCM.Editor.WebApi;
 using Unity.VisualScripting;
+using UnityEditor.UI;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -12,9 +12,8 @@ public class KartController : MonoBehaviour
     [SerializeField] private Transform _accelerationPoint;
     [SerializeField] private GameObject[] _tires = new GameObject[4];
     [SerializeField] private GameObject[] _frontTireParents = new GameObject[2];
-
-
-
+    [SerializeField] private TrailRenderer[] _skidMarks = new TrailRenderer[2];
+    [SerializeField] private ParticleSystem[] _skidSmokes = new ParticleSystem[2];
 
     [Header("Configuracion de suspencion")]
     [SerializeField] private float _restLength;
@@ -37,6 +36,8 @@ public class KartController : MonoBehaviour
     [SerializeField] private float _steerStrength = 15f;
     [SerializeField] private AnimationCurve _turningCurve;
     [SerializeField] private float _dragCoefficient = 1f;
+    [SerializeField] private float _brakingDeceleration = 100f;
+    [SerializeField] private float _brakingDragCoefficient = 0.5f;
 
     private Vector3 _currentCarLocalVelocity = Vector3.zero;
     private float _carVelocityRatio = 0;
@@ -44,8 +45,7 @@ public class KartController : MonoBehaviour
     [Header("Visuales")]
     [SerializeField] private float _tireRotSpeed = 3000f;
     [SerializeField] private float _maxSteeringAngle = 30f;
-
-
+    [SerializeField] private float _minSideSkidVelocity = 10f;
 
     #region Funciones
     void Start()
@@ -79,21 +79,27 @@ public class KartController : MonoBehaviour
     }
     private void Acceleration()
     {
-        _rb.AddForceAtPosition(_acceleration * _moveInput * transform.forward, _accelerationPoint.position, ForceMode.Acceleration);
+        if (_currentCarLocalVelocity.z < _maxSpeed)
+        {
+            _rb.AddForceAtPosition(_acceleration * _moveInput * transform.forward, _accelerationPoint.position, ForceMode.Acceleration);
+        }
+        Debug.Log(_currentCarLocalVelocity.z);
     }
     private void Deceleration()
     {
-        _rb.AddForceAtPosition(_deceleration * _moveInput * -transform.forward, _accelerationPoint.position, ForceMode.Acceleration);
+        _rb.AddForce((Input.GetKey(KeyCode.Space) ? _brakingDeceleration : _deceleration) * Mathf.Abs(_carVelocityRatio) * -_rb.transform.forward, ForceMode.Acceleration);
     }
     private void Turn()
     {
-        _rb.AddTorque(_steerStrength * _steerInput * _turningCurve.Evaluate(_carVelocityRatio) * Mathf.Sign(_carVelocityRatio) * transform.up, ForceMode.Acceleration);
+        _rb.AddRelativeTorque(_steerStrength * _steerInput * _turningCurve.Evaluate(Mathf.Abs(_carVelocityRatio)) * Mathf.Sign(_carVelocityRatio) * transform.up, ForceMode.Acceleration);
     }
     private void SidewaysDarg()
     {
         float currentSidewaysSpeed = _currentCarLocalVelocity.x;
-        float dragMagnitude = -currentSidewaysSpeed * _dragCoefficient;
+        float dragMagnitude = -currentSidewaysSpeed * (Input.GetKey(KeyCode.Space) ? _brakingDragCoefficient : _dragCoefficient);
+
         Vector3 dragForce = transform.right * dragMagnitude;
+        
         _rb.AddForceAtPosition(dragForce, _rb.worldCenterOfMass, ForceMode.Acceleration);
     }
     #endregion
@@ -102,6 +108,7 @@ public class KartController : MonoBehaviour
     private void Visuals()
     {
         TireVisuals();
+        Vfx();
     }
     private void TireVisuals()
     {
@@ -117,6 +124,40 @@ public class KartController : MonoBehaviour
             else
             {
                 _tires[i].transform.Rotate(Vector3.right, _tireRotSpeed * _moveInput * Time.deltaTime, Space.Self);
+            }
+        }
+    }
+    private void Vfx()
+    {
+        if (_isGrounded && Mathf.Abs(_currentCarLocalVelocity.x) > _minSideSkidVelocity && _carVelocityRatio > 0)
+        {
+            ToggleSkidMarks(true);
+            ToggleSkidSmokes(true);
+        }
+        else
+        {
+            ToggleSkidMarks(false);
+            ToggleSkidSmokes(false);
+        }
+    }
+    private void ToggleSkidMarks(bool toggle)
+    {
+        foreach (var skidMark in _skidMarks)
+        {
+            skidMark.emitting = toggle;
+        }
+    }
+    private void ToggleSkidSmokes(bool toggle)
+    {
+        foreach (var smoke in _skidSmokes)
+        {
+            if (toggle)
+            {
+                smoke.Play();
+            }
+            else
+            {
+                smoke.Stop();
             }
         }
     }
